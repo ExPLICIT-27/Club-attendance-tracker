@@ -6,6 +6,7 @@ import queue
 from datetime import date
 
 import ContestAttendance as ca
+import member_ops as mo
 
 CORE_EXCEL_FILE = "CP_Members.xlsx"
 FFCS_EXCEL_FILE = "FFCS_Members.xlsx"
@@ -108,12 +109,14 @@ def main_page():
 
         # Navigation Tabs
         with ui.tabs().classes('w-full border-b border-slate-700 text-slate-300') as tabs:
-            tab_core = ui.tab('Core CP Roster')
-            tab_ffcs = ui.tab('FFCS Roster')
-            tab_all = ui.tab('All Members')
-            tab_meeting_grid = ui.tab('Meeting Sheet')
-            tab_mark_attendance = ui.tab('Mark Meeting Attendance')
-            tab_scrape = ui.tab('Scrape Contest')
+            tab_core = ui.tab('Core CP Roster', icon='groups')
+            tab_ffcs = ui.tab('FFCS Roster', icon='school')
+            tab_all = ui.tab('All Members', icon='filter_list')
+            tab_meeting_grid = ui.tab('Meeting Sheet', icon='table_view')
+            tab_mark_attendance = ui.tab('Mark Attendance', icon='fact_check')
+            tab_scrape = ui.tab('Scrape Contest', icon='travel_explore')
+            tab_add_import = ui.tab('Add / Import', icon='person_add')
+            tab_review = ui.tab('Review', icon='rate_review')
 
         def make_grid(df: pd.DataFrame, empty_msg: str):
             if not df.empty:
@@ -138,9 +141,58 @@ def main_page():
             with ui.tab_panel(tab_ffcs):
                 make_grid(df_ffcs, 'No data found in FFCS_Members.xlsx. Run ContestAttendance.py (mode 2) first.')
 
-            # TAB 3: Combined Roster
+            # TAB 3: Combined Roster (Batch + attendance-range + type + search filters)
             with ui.tab_panel(tab_all):
-                make_grid(df_members, 'No member data found yet.')
+                batch_options = ['All'] + mo.known_batches()
+
+                with ui.card().classes('bg-slate-800 border border-slate-700 p-4 rounded-xl w-full gap-3'):
+                    ui.label('Filters').classes('font-semibold text-slate-300')
+                    with ui.row().classes('gap-4 items-end flex-wrap'):
+                        f_batch = ui.select(batch_options, value='All', label='Batch').props('dense outlined').classes('w-44')
+                        f_type = ui.select(['All', 'Core', 'FFCS'], value='All', label='Member Type').props('dense outlined').classes('w-36')
+                        f_att_min = ui.number('Min meeting attendance %', value=0, min=0, max=100).props('dense outlined').classes('w-40')
+                        f_att_max = ui.number('Max meeting attendance %', value=100, min=0, max=100).props('dense outlined').classes('w-40')
+                        f_catt_min = ui.number('Min contest attendance %', value=0, min=0, max=100).props('dense outlined').classes('w-40')
+                        f_catt_max = ui.number('Max contest attendance %', value=100, min=0, max=100).props('dense outlined').classes('w-40')
+                        f_search = ui.input('Search name / reg. no. / handle').props('dense outlined clearable').classes('w-64')
+                    with ui.row().classes('gap-3 items-center'):
+                        result_label = ui.label('').classes('text-xs text-slate-400')
+
+                        def do_reset():
+                            f_batch.value, f_type.value = 'All', 'All'
+                            f_att_min.value, f_att_max.value = 0, 100
+                            f_catt_min.value, f_catt_max.value = 0, 100
+                            f_search.value = ''
+                            refresh_all_grid()
+
+                        ui.button('Apply Filters', icon='search', on_click=lambda: refresh_all_grid()).props('dense').classes(
+                            'bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 rounded-lg'
+                        )
+                        ui.button('Reset', icon='refresh', on_click=do_reset).props('dense flat').classes('text-slate-300')
+
+                all_grid_container = ui.column().classes('w-full mt-3')
+
+                def refresh_all_grid():
+                    all_grid_container.clear()
+                    filtered = mo.filter_members(
+                        df_members,
+                        batch=f_batch.value,
+                        member_type=f_type.value,
+                        attendance_min=f_att_min.value,
+                        attendance_max=f_att_max.value,
+                        contest_attendance_min=f_catt_min.value,
+                        contest_attendance_max=f_catt_max.value,
+                        search=f_search.value,
+                    )
+                    result_label.set_text(f'{len(filtered)} of {len(df_members)} member(s) shown')
+                    with all_grid_container:
+                        make_grid(filtered, 'No members match the current filters — try Reset.')
+
+                # Search box applies as you type (debounced); everything else needs Apply,
+                # so dragging/typing numbers doesn't refetch the grid on every keystroke.
+                f_search.on('keydown.enter', lambda e: refresh_all_grid())
+
+                refresh_all_grid()
 
             # TAB 4: Meeting Excel Viewer
             with ui.tab_panel(tab_meeting_grid):
@@ -314,5 +366,292 @@ def main_page():
                         'Tip: after a scrape finishes, refresh this page to see updated stats in the KPI '
                         'cards, rosters, and to regenerate the static dashboard with export_static.py.'
                     ).classes('text-xs text-slate-500 mt-2')
+
+            # TAB 7: Add Member (single) + Bulk CSV/Excel Import
+            with ui.tab_panel(tab_add_import):
+
+                # --- Single Add ---
+                with ui.card().classes('bg-slate-800 border border-slate-700 p-6 rounded-xl w-full gap-3'):
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('person_add').classes('text-blue-400 text-2xl')
+                        ui.label('Add One Member').classes('text-lg font-bold text-slate-200')
+                    ui.label('For a single new recruit. Use Bulk Import below for a whole batch.').classes('text-xs text-slate-400 -mt-2')
+
+                    with ui.grid(columns=3).classes('gap-4 w-full max-w-3xl mt-2'):
+                        add_type = ui.select(['Core', 'FFCS'], value='Core', label='Member Type').props('dense outlined')
+                        add_name = ui.input('Name *').props('dense outlined')
+                        add_reg = ui.input('Registration Number *').props('dense outlined')
+                        add_phone = ui.input('Phone number').props('dense outlined')
+                        add_handle = ui.input('CodeChef ID').props('dense outlined')
+                        add_batch = ui.select(
+                            options=mo.known_batches() + ['+ New batch…'],
+                            value=(mo.known_batches() or [ca.DEFAULT_BATCH_LABEL])[0],
+                            label='Batch', new_value_mode='add-unique',
+                        ).props('dense outlined')
+
+                    add_status = ui.label('').classes('text-xs')
+
+                    def do_add_member():
+                        ok, msg = mo.add_single_member(
+                            add_type.value, add_name.value or '', add_reg.value or '',
+                            add_phone.value or '', add_handle.value or '', add_batch.value or '',
+                        )
+                        add_status.set_text(msg)
+                        add_status.classes(replace='text-xs ' + ('text-emerald-400' if ok else 'text-rose-400'))
+                        ui.notify(msg, type='positive' if ok else 'negative')
+                        if ok:
+                            ui.navigate.to('/')
+
+                    ui.button('Add Member', icon='add', on_click=do_add_member).classes(
+                        'bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-lg self-start mt-2'
+                    )
+
+                # --- Bulk Import wizard ---
+                with ui.card().classes('bg-slate-800 border border-slate-700 p-6 rounded-xl w-full gap-3 mt-4'):
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('upload_file').classes('text-emerald-400 text-2xl')
+                        ui.label('Bulk Import (CSV / Excel) — for recruitment drives').classes('text-lg font-bold text-slate-200')
+                    ui.label(
+                        'Follow the 3 steps below. Everything for a step is grouped together so you '
+                        'always know what to do next.'
+                    ).classes('text-xs text-slate-400 -mt-2 mb-2')
+
+                    import_state = {'raw_df': None, 'preview_df': None}
+
+                    with ui.stepper().props('vertical flat').classes('w-full bg-transparent') as stepper:
+
+                        # Step 1: cohort, batch, upload
+                        with ui.step('Choose cohort & upload file'):
+                            with ui.row().classes('gap-4 items-end flex-wrap'):
+                                import_cohort = ui.select(['Core', 'FFCS'], value='Core', label='Import into').props('dense outlined').classes('w-40')
+                                import_batch = ui.select(
+                                    options=mo.known_batches() + ['+ New batch…'],
+                                    value=(mo.known_batches() or [ca.DEFAULT_BATCH_LABEL])[0],
+                                    label='Batch for this import', new_value_mode='add-unique',
+                                ).props('dense outlined').classes('w-56')
+                            upload_status = ui.label('No file uploaded yet.').classes('text-xs text-slate-400 mt-2')
+
+                            def handle_upload(e):
+                                content = e.content.read()
+                                try:
+                                    raw_df = mo.parse_uploaded_table(e.name, content)
+                                except Exception as ex:  # noqa: BLE001
+                                    ui.notify(f'Could not read file: {ex}', type='negative')
+                                    upload_status.set_text(f'❌ Failed to read {e.name}.')
+                                    return
+                                import_state['raw_df'] = raw_df
+                                import_state['preview_df'] = None
+                                upload_status.set_text(f'✅ Loaded {len(raw_df)} row(s) from {e.name}.')
+                                render_mapping()
+                                stepper.next()
+
+                            ui.upload(on_upload=handle_upload, auto_upload=True).props('accept=".csv,.xlsx,.xls"').classes('w-full mt-2')
+                            with ui.stepper_navigation():
+                                ui.button('Next', icon='arrow_forward', on_click=stepper.next).props('dense')
+
+                        # Step 2: mapping
+                        with ui.step('Confirm column mapping'):
+                            ui.label(
+                                'We auto-detected which of your file\'s columns map to each field. '
+                                'Fix any that show "(none)" before continuing.'
+                            ).classes('text-xs text-slate-400 mb-1')
+                            mapping_container = ui.column().classes('w-full gap-2')
+
+                            def render_mapping():
+                                mapping_container.clear()
+                                raw_df = import_state['raw_df']
+                                if raw_df is None:
+                                    return
+                                guess = mo.guess_column_mapping(raw_df)
+                                options = ['(none)'] + [str(c) for c in raw_df.columns]
+                                mapping_selects.clear()
+                                with mapping_container:
+                                    with ui.grid(columns=2).classes('gap-4 w-full max-w-2xl'):
+                                        for field in mo.IMPORT_TARGET_FIELDS:
+                                            default = guess.get(field) or '(none)'
+                                            sel = ui.select(options, value=default, label=f'{field} ←').props('dense outlined')
+                                            mapping_selects[field] = sel
+                                    if any(guess.get(f) is None for f in mo.IMPORT_TARGET_FIELDS):
+                                        ui.label(
+                                            '⚠️ Some columns could not be auto-detected — please map them above.'
+                                        ).classes('text-amber-400 text-xs mt-1')
+
+                            mapping_selects = {}
+                            render_mapping()
+
+                            def do_preview():
+                                raw_df = import_state['raw_df']
+                                if raw_df is None:
+                                    ui.notify('Upload a file first.', type='negative')
+                                    return
+                                mapping = {f: (None if s.value == '(none)' else s.value) for f, s in mapping_selects.items()}
+                                mapped = mo.apply_mapping(raw_df, mapping, import_cohort.value, import_batch.value or ca.DEFAULT_BATCH_LABEL)
+                                mapped = mo.detect_duplicates(mapped, import_cohort.value)
+                                import_state['preview_df'] = mapped
+                                render_preview()
+                                stepper.next()
+
+                            with ui.stepper_navigation():
+                                ui.button('Preview →', icon='arrow_forward', on_click=do_preview).classes(
+                                    'bg-slate-600 hover:bg-slate-500 text-white font-semibold'
+                                )
+                                ui.button('Back', on_click=stepper.previous).props('flat')
+
+                        # Step 3: preview + confirm
+                        with ui.step('Preview & confirm'):
+                            preview_container = ui.column().classes('w-full gap-2')
+
+                            def render_preview():
+                                preview_container.clear()
+                                mapped = import_state['preview_df']
+                                if mapped is None:
+                                    return
+                                dup_count = int(mapped['Duplicate'].sum())
+                                with preview_container:
+                                    with ui.row().classes('gap-2 items-center'):
+                                        ui.icon('info', color='amber' if dup_count else 'slate').classes('text-lg')
+                                        ui.label(
+                                            f'{len(mapped)} row(s) parsed — {dup_count} flagged as possible duplicate(s) '
+                                            f'(matched by Registration Number) and will be skipped on import.'
+                                        ).classes('text-sm text-slate-300')
+                                    cols = [{'headerName': c, 'field': c, 'sortable': True, 'filter': True} for c in mapped.columns]
+                                    ui.aggrid({
+                                        'columnDefs': cols,
+                                        'rowData': mapped.to_dict('records'),
+                                        'defaultColDef': {'flex': 1, 'minWidth': 120},
+                                        'pagination': True,
+                                        'paginationPageSize': 10,
+                                    }).classes('ag-theme-balham-dark h-80 w-full rounded-xl')
+
+                            render_preview()
+
+                            def do_confirm():
+                                mapped = import_state['preview_df']
+                                if mapped is None:
+                                    ui.notify('Nothing to import yet.', type='negative')
+                                    return
+                                imported, skipped = mo.commit_bulk_import(mapped, import_cohort.value, skip_duplicates=True)
+                                ui.notify(f'Imported {imported} member(s), skipped {skipped} duplicate(s).', type='positive')
+                                ui.navigate.to('/')
+
+                            with ui.stepper_navigation():
+                                ui.button('Confirm Import', icon='check', on_click=do_confirm).classes(
+                                    'bg-emerald-600 hover:bg-emerald-500 text-white font-bold'
+                                )
+                                ui.button('Back', on_click=stepper.previous).props('flat')
+
+            # TAB 8: Review Workflow (0%-30% inclusive attendance)
+            with ui.tab_panel(tab_review):
+                eligible = mo.review_eligible_members()
+
+                with ui.card().classes('bg-slate-800 border border-slate-700 p-6 rounded-xl w-full gap-3'):
+                    ui.label(f'Review-Eligible Members ({mo.ATTENDANCE_LOW}%–{mo.ATTENDANCE_HIGH}% attendance, inclusive)').classes(
+                        'text-lg font-bold text-slate-200'
+                    )
+                    ui.label(
+                        'Flagged if EITHER meeting attendance or contest (Starters round) participation '
+                        'falls in this band — enhanced from the original "0 contests" check into a percentage.'
+                    ).classes('text-xs text-slate-400 -mt-2')
+                    if eligible.empty:
+                        ui.label(
+                            'No members currently fall in the 0%-30% attendance band (or no attendance/contest data recorded yet).'
+                        ).classes('text-slate-400 text-sm')
+                    else:
+                        eligible = eligible.sort_values('Attendance %', na_position='last')
+                        for _, row in eligible.iterrows():
+                            m_type = str(row.get('Member Type', 'N/A'))
+                            username = str(row.get('Username', 'N/A'))
+                            name = str(row.get('Name', 'Unknown'))
+                            reg_no = str(row.get('Registration Number', 'N/A'))
+                            batch = str(row.get('Batch', 'N/A'))
+                            att = row.get('Attendance %')
+                            catt = row.get('Contest Attendance %')
+                            reason = str(row.get('Review Reason', ''))
+                            att_display = f"{att:.0f}%" if att is not None and not pd.isna(att) else 'N/A'
+                            catt_display = f"{catt:.0f}%" if catt is not None and not pd.isna(catt) else 'N/A'
+                            worst = min([v for v in (att, catt) if v is not None and not pd.isna(v)], default=None)
+                            badge_color = 'rose' if (worst is not None and worst <= 15) else 'amber'
+
+                            with ui.row().classes(
+                                'w-full items-center justify-between border border-slate-700 rounded-lg px-4 py-3 bg-slate-900/40'
+                            ):
+                                with ui.row().classes('items-center gap-3'):
+                                    ui.badge(reason or '—', color=badge_color).classes('text-xs px-3 py-1')
+                                    with ui.column().classes('gap-0'):
+                                        ui.label(f'{name}  ·  {m_type}').classes('text-slate-100 font-semibold')
+                                        ui.label(
+                                            f'Reg. {reg_no}  ·  Batch: {batch}  ·  @{username}  ·  '
+                                            f'Meetings: {att_display}  ·  Contests: {catt_display}'
+                                        ).classes('text-slate-400 text-xs')
+
+                                def open_review_dialog(m_type=m_type, username=username, name=name, reg_no=reg_no):
+                                    with ui.dialog() as dialog, ui.card().classes('bg-slate-800 border border-slate-700 p-6 gap-3 w-96'):
+                                        ui.label(f'Review: {name}').classes('text-lg font-bold text-slate-200')
+                                        r_task = ui.input('Task').classes('w-full')
+                                        r_desc = ui.textarea('Task Description').classes('w-full')
+                                        r_status = ui.select(mo.REVIEW_STATUSES, value='Open', label='Status').classes('w-full')
+                                        r_notes = ui.textarea('Notes').classes('w-full')
+                                        r_outcome = ui.input('Outcome').classes('w-full')
+
+                                        def save_review():
+                                            mo.add_review(
+                                                m_type, username, name, reg_no,
+                                                r_task.value or '', r_desc.value or '',
+                                                r_status.value or 'Open', r_notes.value or '', r_outcome.value or '',
+                                            )
+                                            ui.notify('Review saved.', type='positive')
+                                            dialog.close()
+                                            if r_status.value in ('Failed', 'Incomplete'):
+                                                offer_removal(m_type, username, name)
+                                            else:
+                                                ui.navigate.to('/')
+
+                                        with ui.row().classes('w-full justify-between mt-2'):
+                                            ui.button('Save Review', on_click=save_review).classes(
+                                                'bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg'
+                                            )
+                                            ui.button('Cancel', on_click=dialog.close).classes(
+                                                'bg-slate-600 hover:bg-slate-500 text-white font-semibold py-2 px-4 rounded-lg'
+                                            )
+                                    dialog.open()
+
+                                ui.button('Review', icon='rate_review', on_click=open_review_dialog).props('dense').classes(
+                                    'bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold px-4 rounded-lg'
+                                )
+
+                def offer_removal(m_type, username, name):
+                    with ui.dialog() as rdialog, ui.card().classes('bg-slate-800 border border-rose-700 p-6 gap-3 w-96'):
+                        ui.label(f'Task failed/incomplete for {name}.').classes('text-slate-200 font-semibold')
+                        ui.label('Remove this member from the roster? This is PERMANENT — there is no archive/trash.').classes(
+                            'text-rose-400 text-sm'
+                        )
+                        with ui.row().classes('w-full justify-between mt-2'):
+                            def confirm_delete():
+                                ok, msg = mo.delete_member(m_type, username)
+                                ui.notify(msg, type='positive' if ok else 'negative')
+                                rdialog.close()
+                                ui.navigate.to('/')
+                            ui.button('Yes, Permanently Remove', on_click=confirm_delete).classes(
+                                'bg-rose-600 hover:bg-rose-500 text-white font-semibold py-2 px-4 rounded-lg'
+                            )
+                            ui.button('Keep Member', on_click=lambda: (rdialog.close(), ui.navigate.to('/'))).classes(
+                                'bg-slate-600 hover:bg-slate-500 text-white font-semibold py-2 px-4 rounded-lg'
+                            )
+                    rdialog.open()
+
+                with ui.card().classes('bg-slate-800 border border-slate-700 p-6 rounded-xl w-full gap-3 mt-4'):
+                    ui.label('Review History').classes('text-lg font-bold text-slate-200')
+                    reviews = mo.load_reviews()
+                    if reviews.empty:
+                        ui.label('No reviews recorded yet.').classes('text-slate-400 text-sm')
+                    else:
+                        cols = [{'headerName': c, 'field': c, 'sortable': True, 'filter': True} for c in reviews.columns]
+                        ui.aggrid({
+                            'columnDefs': cols,
+                            'rowData': reviews.to_dict('records'),
+                            'defaultColDef': {'flex': 1, 'minWidth': 120},
+                            'pagination': True,
+                            'paginationPageSize': 10,
+                        }).classes('ag-theme-balham-dark h-80 w-full rounded-xl')
 
 ui.run(title='Department Attendance Hub', dark=True, port=8080)

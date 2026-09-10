@@ -340,6 +340,14 @@ def load_cohort(
             )
         )
 
+        batch = clean_text(
+            pick(
+                row,
+                "Batch",
+                default="Unassigned",
+            )
+        )
+
         # Total problems solved across all tracked contests.
         total_solved = sum(
             int(row[column])
@@ -382,6 +390,7 @@ def load_cohort(
             "phoneNumber": phone_number,
             "codechefId": codechef_id,
             "memberType": member_type,
+            "batch": batch,
             "attendanceStatus": attendance_status,
             "totalProblemsSolved": total_solved,
             "contestsParticipated": contests_participated,
@@ -592,7 +601,7 @@ def build_dataset() -> dict:
         ranked = all_df.sort_values(
             by=["totalProblemsSolved", "contestsParticipated", "name"],
             ascending=[False, False, True],
-        ).head(3)
+        ).head(10)
         leaderboard = [
             {
                 "rank": rank,
@@ -603,6 +612,30 @@ def build_dataset() -> dict:
             }
             for rank, (_, row) in enumerate(ranked.iterrows(), start=1)
             if int(row["totalProblemsSolved"]) > 0
+        ]
+
+    # Consistency = share of tracked contests actually participated in
+    # (attendanceRate), not raw volume — so someone who shows up to every
+    # round solving a little outranks someone who solved a lot in one round
+    # and vanished. Tie-broken by total problems solved.
+    consistency_leaderboard = []
+    if not all_df.empty:
+        ranked_consistency = all_df.sort_values(
+            by=["attendanceRate", "totalProblemsSolved", "name"],
+            ascending=[False, False, True],
+        ).head(10)
+        consistency_leaderboard = [
+            {
+                "rank": rank,
+                "name": str(row["name"]),
+                "memberType": str(row["memberType"]),
+                "contestsParticipated": int(row["contestsParticipated"]),
+                "contestsTracked": int(row["contestsTracked"]),
+                "attendanceRate": float(row["attendanceRate"]),
+                "solved": int(row["totalProblemsSolved"]),
+            }
+            for rank, (_, row) in enumerate(ranked_consistency.iterrows(), start=1)
+            if int(row["contestsParticipated"]) > 0
         ]
 
     # -----------------------------------------------------------------------
@@ -626,6 +659,7 @@ def build_dataset() -> dict:
         "topPerformersByContest": top_performers,
 
         "leaderboard": leaderboard,
+        "consistencyLeaderboard": consistency_leaderboard,
     }
 
     # -----------------------------------------------------------------------

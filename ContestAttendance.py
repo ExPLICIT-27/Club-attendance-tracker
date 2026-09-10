@@ -37,8 +37,13 @@ STANDARD_COLUMNS = [
     "Phone number",
     "CodeChef ID",
     "Member Type",
+    "Batch",
     "Attendance Status",
 ]
+
+# Recruitment/intake batch label used when a roster row doesn't specify one
+# (e.g. legacy rows created before the Batch field existed).
+DEFAULT_BATCH_LABEL = "Unassigned"
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -291,6 +296,14 @@ def _standardize_frame(df: pd.DataFrame, member_type: str) -> pd.DataFrame:
         out["Member Type"] = out["Member Type"].fillna(member_type)
     if "Attendance Status" not in out.columns:
         out["Attendance Status"] = "Unknown"
+
+    # Recruitment batch (e.g. "2026 Spring Intake"). Added for the bulk
+    # import / batch-filtering feature; existing rosters without it just
+    # get labelled DEFAULT_BATCH_LABEL rather than failing to load.
+    if "Batch" not in out.columns:
+        out["Batch"] = DEFAULT_BATCH_LABEL
+    else:
+        out["Batch"] = out["Batch"].fillna(DEFAULT_BATCH_LABEL).replace("", DEFAULT_BATCH_LABEL)
 
     return out
 

@@ -499,8 +499,13 @@
     ></div>
 
     <section class="panel" id="leaderboardPanel">
-        <h2>Top 3 Leaderboard</h2>
+        <h2>Top 10 — Most Problems Solved</h2>
         <div class="leaderboard-grid" id="leaderboardGrid"></div>
+    </section>
+
+    <section class="panel" id="consistencyLeaderboardPanel">
+        <h2>Top 10 — Most Consistent (Contest Attendance %)</h2>
+        <div class="leaderboard-grid" id="consistencyLeaderboardGrid"></div>
     </section>
 
 
@@ -801,6 +806,32 @@ function renderLeaderboard() {
 }
 
 
+function renderConsistencyLeaderboard() {
+
+    const leaderboard = DASHBOARD_DATA.kpis?.consistencyLeaderboard || [];
+    const container = document.getElementById("consistencyLeaderboardGrid");
+    const panel = document.getElementById("consistencyLeaderboardPanel");
+
+    if (!leaderboard.length) {
+        panel.style.display = "none";
+        return;
+    }
+
+    container.innerHTML = leaderboard.map(entry => `
+        <div class="leaderboard-item">
+            <div class="leaderboard-rank">#${entry.rank}</div>
+            <div>
+                <div class="leaderboard-name">${escapeHtml(entry.name)}</div>
+                <div class="leaderboard-meta">
+                    ${escapeHtml(entry.memberType)} · ${entry.attendanceRate}% attendance ·
+                    ${entry.contestsParticipated}/${entry.contestsTracked} contests · ${entry.solved} solved
+                </div>
+            </div>
+        </div>
+    `).join("");
+}
+
+
 /* -----------------------------------------------------------------------
    Roster table header
 ------------------------------------------------------------------------ */
@@ -816,10 +847,11 @@ function renderRosterHead() {
         ["phoneNumber", "Phone"],
         ["codechefId", "CodeChef ID"],
         ["memberType", "Type"],
+        ["batch", "Batch"],
         ["attendanceStatus", "Status"],
         ["contestsParticipated", "Contests"],
         ["totalProblemsSolved", "Problems Solved"],
-        ["attendanceRate", "Attendance %"]
+        ["attendanceRate", "Contest Attendance %"]
 
     ];
 
@@ -1149,6 +1181,10 @@ function renderRosterBody() {
                     </td>
 
                     <td>
+                        ${escapeHtml(row.batch || "Unassigned")}
+                    </td>
+
+                    <td>
                         ${statusPill}
                     </td>
 
@@ -1338,6 +1374,7 @@ function init() {
     renderKpis();
 
     renderLeaderboard();
+    renderConsistencyLeaderboard();
 
     renderRosterHead();
 
